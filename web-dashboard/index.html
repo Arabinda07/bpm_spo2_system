@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Login |YOUR_SCHOOL_NAME</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- Firebase (Compat SDKs) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+<style>
+body {
+  margin: 0;
+  height: 100vh;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card {
+  background: #ffffff;
+  padding: 32px;
+  width: 90%;
+  max-width: 380px;
+  border-radius: 15px;
+  box-shadow: 0 15px 35px rgba(0,0,0,0.4);
+  text-align: center;
+}
+.logo {
+  width: 80px;
+  height: auto;
+  margin-bottom: 12px;
+}
+h2 {
+  margin: 0 0 6px 0;
+  color: #203a43;
+}
+.subtitle {
+  color: #555;
+  font-size: 14px;
+  margin-bottom: 22px;
+}
+input {
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0;
+  font-size: 14px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 16px;
+  background: #203a43;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+button:disabled {
+  opacity: 0.6;
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid rgba(255,255,255,0.4);
+  border-top: 3px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  display: none;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+#error {
+  color: red;
+  font-size: 13px;
+  margin-top: 10px;
+  min-height: 16px;
+}
+.register-link {
+  margin-top: 14px;
+  font-size: 13px;
+}
+.register-link a {
+  color: #203a43;
+  font-weight: 600;
+  text-decoration: none;
+}
+.register-link a:hover {
+  text-decoration: underline;
+}
+.footer {
+  position: absolute;
+  bottom: 14px;
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: #cfd8dc;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <!-- SCHOOL LOGO -->
+  <img src="logo.png" alt="School Logo" class="logo">
+
+  <h2>YOUR_SCHOOL_NAME</h2>
+  <div class="subtitle">BPM & SpO₂ Monitoring Dashboard</div>
+
+  <input id="email" type="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password">
+
+  <button id="loginBtn" onclick="login()">
+    <span id="btnText">Login to Dashboard</span>
+    <span class="spinner" id="spinner"></span>
+  </button>
+
+  <div id="error"></div>
+
+  <!-- NEW USER PATH -->
+<div class="register-link">
+  New user?
+  <a href="/register.html" onclick="allowAutoRedirect = false;">
+    Create an account
+  </a>
+</div>
+
+
+
+<div class="footer">
+  Educational prototype · Not a medical device
+</div>
+
+<script>
+/* ================= FIREBASE INIT ================= */
+firebase.initializeApp({
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "AUTH_DOMAIN_ID",
+  projectId: "PROJECT_ID",
+  appId: "APP_ID"
+});
+
+/* Enforce SESSION persistence (critical for logout correctness) */
+firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION)
+  .catch(err => {
+    console.error("Auth persistence error:", err);
+  });
+
+const auth = firebase.auth();
+let allowAutoRedirect = true;
+
+
+/* ================= AUTH GUARD ================= */
+auth.onAuthStateChanged(user => {
+  if (user && allowAutoRedirect) {
+    window.location.replace("dashboard.html");
+  }
+});
+
+
+/* ================= LOGIN ================= */
+function login() {
+  const e = email.value.trim();
+  const p = password.value;
+  error.textContent = "";
+
+  if (!e || !p) {
+    error.textContent = "Please enter both email and password.";
+    return;
+  }
+
+  loginBtn.disabled = true;
+  spinner.style.display = "inline-block";
+  btnText.textContent = "Signing in...";
+auth.signInWithEmailAndPassword(e, p)
+  .then(() => {
+    window.location.replace("dashboard.html");
+  })
+  .catch(err => {
+    console.error("[AUTH ERROR]", err);
+
+    let msg = "Login failed.";
+    if (err.code === "auth/user-not-found") {
+      msg = "No account found with this email.";
+    } else if (err.code === "auth/wrong-password") {
+      msg = "Incorrect password.";
+    } else if (err.code === "auth/invalid-email") {
+      msg = "Invalid email address.";
+    }
+
+    error.textContent = msg;
+    loginBtn.disabled = false;
+    spinner.style.display = "none";
+    btnText.textContent = "Login to Dashboard";
+  });
+
+}
+</script>
+
+</body>
+</html>

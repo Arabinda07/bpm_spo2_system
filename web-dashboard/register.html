@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>User Registration | Educational Wellness System</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body {
+  margin: 0;
+  height: 100vh;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+.container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.card {
+  background: white;
+  width: 100%;
+  max-width: 420px;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.header img {
+  width: 64px;
+  margin-bottom: 8px;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.header p {
+  font-size: 13px;
+  color: #555;
+  margin-top: 6px;
+}
+
+.form-group {
+  margin-bottom: 14px;
+}
+
+label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+input {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+
+.helper {
+  font-size: 11px;
+  color: #777;
+  margin-top: 4px;
+}
+
+.consent {
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.consent input {
+  margin-right: 6px;
+}
+
+button {
+  width: 100%;
+  margin-top: 18px;
+  padding: 12px;
+  font-size: 14px;
+  background: #203a43;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #172b32;
+}
+button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+
+.footer-note {
+  margin-top: 16px;
+  font-size: 11px;
+  color: #666;
+  text-align: center;
+}
+
+.footer-note a {
+  color: #203a43;
+  text-decoration: none;
+}
+</style>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+</head>
+
+<body>
+
+<div class="container">
+  <div class="card">
+
+    <!-- HEADER -->
+    <div class="header">
+      <img src="logo.png" alt="School Logo">
+      <h2>User Registration</h2>
+      <p>Educational Wellness Observation System</p>
+    </div>
+
+    <!-- FORM -->
+    <form id="registerForm">
+
+      <div class="form-group">
+        <label for="name">Student / User Name</label>
+        <input type="text" id="name" required>
+        <div class="helper">
+          This name will be used only for display and reports.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="email">Email Address</label>
+        <input type="email" id="email" required>
+        <div class="helper">
+          This email will be used to log in to the dashboard.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" required>
+        <div class="helper">
+          Choose a strong password. Do not share it with others.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="doctorEmail">Doctor / Guardian Email</label>
+        <input type="email" id="doctorEmail" required>
+        <div class="helper">
+          This email will be used only if unusual trends are observed.
+        </div>
+      </div>
+
+      <!-- CONSENT -->
+      <div class="consent">
+        <label>
+          <input type="checkbox" required>
+          I understand that this system is for educational purposes only and does not provide medical diagnosis.
+        </label>
+      </div>
+
+      <button type="submit">Create Account</button>
+
+    </form>
+
+    <div class="footer-note">
+      Already registered? <a href="index.html">Go to Login</a>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ================= FIREBASE INIT ================= */
+firebase.initializeApp({
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "AUTH_DOMAIN_ID",
+  projectId: "PROJECT_ID",
+  appId: "APP_ID"
+});
+
+const auth = firebase.auth();
+const db = firebase.database();
+
+
+/* ================= REGISTRATION LOGIC ================= */
+const form = document.getElementById("registerForm");
+
+form.addEventListener("submit", function (e) {
+  e.preventDefault();
+
+  const name = document.getElementById("name").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const doctorEmail = document.getElementById("doctorEmail").value.trim();
+
+  if (!name || !email || !password || !doctorEmail) {
+    alert("Please fill in all fields.");
+    return;
+  }
+
+  if (password.length < 6) {
+    alert("Password must be at least 6 characters long.");
+    return;
+  }
+
+  const button = form.querySelector("button");
+  button.disabled = true;
+  button.textContent = "Creating account...";
+
+ auth.createUserWithEmailAndPassword(email, password)
+  .then(userCredential => {
+
+    const uid = userCredential.user.uid;
+
+    // Store user profile in Realtime Database
+    return db.ref(`users/${uid}`).set({
+      name: name,
+      email: email,
+      doctorEmail: doctorEmail,
+      consentGiven: true,
+      createdAt: Date.now()
+    });
+  })
+  .then(() => {
+    alert("Account created successfully! Please log in.");
+    window.location.href = "index.html";
+  })
+
+    .catch(error => {
+      let message = "Registration failed.";
+      if (error.code === "auth/email-already-in-use") {
+        message = "This email is already registered.";
+      } else if (error.code === "auth/invalid-email") {
+        message = "Invalid email address.";
+      } else if (error.code === "auth/weak-password") {
+        message = "Password is too weak.";
+      }
+
+      alert(message);
+      button.disabled = false;
+      button.textContent = "Create Account";
+    });
+});
+</script>
+
+</body>
+</html>

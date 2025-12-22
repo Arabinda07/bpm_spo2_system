@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Trends |YOUR_SCHOOL_NAME </title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<!-- Chart.js + Luxon -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
+
+<!-- Chart.js Annotation -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
+
+<!-- PDF / Image Export -->
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+<style>
+body { margin:0; font-family:Arial,sans-serif; font-size:14px;background:#f4f6f8; }
+header { background:#203a43; color:white; padding:12px; display:flex; gap:12px; }
+header img { width:48px; background:white; border-radius:8px; padding:4px; }
+.container { padding:12px; }
+.card { background:white; padding:12px; border-radius:10px; margin-bottom:12px; }
+.controls button {
+  padding:8px 12px;
+  border:none;
+  border-radius:6px;
+  background:#203a43;
+  color:white;
+  cursor:pointer;
+  margin-right:6px;
+  margin-bottom:6px;
+}
+.card > b {
+  font-size: 15px;
+  font-weight: 700;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.controls button.secondary { background:#555; opacity: 0.85; }
+.status { font-size:12px; color:#666; margin-top:4px; }
+.note { font-size:13px; color:#444; margin-top:6px; line-height: 1.55;}
+.day-block {
+  border-left: 3px solid rgba(32, 58, 67, 0.35);
+  padding-left: 10px;
+  margin-top: 10px;
+  line-height: 1.45;
+}
+canvas { max-height:260px; }
+.footer { text-align:center; font-size:12px; color:#666; margin:12px 0; }
+</style>
+</head>
+
+<body>
+
+<header>
+  <img src="logo.png" alt="School Logo">
+  <div>
+    <b>YOUR_SCHOOL_NAME </b><br>
+    <span class="status">
+      Trends Dashboard (Historical Snapshot)<br>
+      Generated on <span id="generatedDate"></span> (UTC)
+    </span>
+  </div>
+</header>
+
+<div class="container" id="reportArea">
+
+  <!-- CONTROLS -->
+  <div class="card controls">
+    <button onclick="load1Day()">Last 24 Hours</button>
+    <button onclick="load7Day()">Last 7 Days</button>
+    <button class="secondary" onclick="downloadPDF()">Download PDF</button>
+    <button class="secondary" onclick="downloadImage()">Download Image</button>
+    <button class="secondary" onclick="goLive()">Back to Live</button>
+    <div id="loadStatus" class="status"></div>
+    <div id="rangeInfo" class="status"></div>
+  </div>
+
+  <!-- OVERALL -->
+  <div class="card">
+    <b>Overall Trend Insight</b>
+    <div id="overallQualitative" class="note"></div>
+  </div>
+
+  <!-- PER DAY -->
+  <div class="card">
+    <b>Per-Day Qualitative Summary</b>
+    <div id="dailyQualitative"></div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="card"><canvas id="bpmChart"></canvas></div>
+  <div class="card"><canvas id="spo2Chart"></canvas></div>
+
+</div>
+
+<div class="footer">
+  Educational prototype · Descriptive trends · Not a medical device
+</div>
+
+<!-- ================= PDF REPORT (HIDDEN ONE-PAGER) ================= -->
+<div id="pdfReport" style="
+  width:794px;
+  min-height:1123px;            /* A4 height @ 96 DPI */
+  padding:40px 48px;
+  background:white;
+  font-family:Arial, sans-serif;
+  color:#222;
+  display:none;
+  box-sizing:border-box;
+">
+
+  <!-- ===== HEADER ===== -->
+  <div style="
+    display:flex;
+    align-items:center;
+    margin-bottom:28px;
+  ">
+    <img src="logo.png" style="
+      width:72px;
+      margin-right:20px;
+    ">
+
+    <div>
+      <div id="pdfSchoolName" style="
+        font-size:30px;
+        font-weight:700;
+        letter-spacing:0.3px;
+      ">
+        SCHOOL NAME
+      </div>
+
+      <div style="
+        font-size:18px;
+        color:#555;
+        margin-top:4px;
+      ">
+        Health & Wellness Trend Report (Educational)
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== META ===== -->
+  <div style="
+    font-size:14px;
+    margin-bottom:24px;
+    color:#333;
+  ">
+    Device ID: <b>esp32_001</b>
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+    Generated on: <span id="pdfDate"></span> (IST)
+  </div>
+
+  <hr style="
+    border:none;
+    border-top:2px solid #e5e5e5;
+    margin:24px 0;
+  ">
+
+  <!-- ===== OVERVIEW ===== -->
+  <div style="
+    font-size:15px;
+    line-height:1.6;
+    margin-bottom:28px;
+  ">
+    <div style="
+      font-size:20px;
+      font-weight:700;
+      margin-bottom:10px;
+    ">
+      Report Overview
+    </div>
+
+    <div style="max-width:640px;">
+      This report presents descriptive trends of heart rate (BPM) and oxygen
+      saturation (SpO₂) derived from an educational IoT prototype. Only readings
+      meeting signal quality criteria were included.
+    </div>
+
+    <div style="margin-top:12px;">
+      Sessions observed: <b id="pdfSessionCount"></b><br>
+      Data coverage: <b id="pdfCoverage"></b>
+    </div>
+  </div>
+
+  <hr style="
+    border:none;
+    border-top:2px solid #f0f0f0;
+    margin:28px 0;
+  ">
+
+  <!-- ===== CHARTS ===== -->
+  <div style="
+    display:flex;
+    gap:32px;
+    margin:32px 0;
+    min-height:460px;
+  ">
+    <div style="flex:1;">
+      <div style="
+        font-size:18px;
+        font-weight:700;
+        margin-bottom:10px;
+      ">
+        BPM Trend
+      </div>
+      <canvas id="pdfBpmChart" height="320"></canvas>
+    </div>
+
+    <div style="flex:1;">
+      <div style="
+        font-size:18px;
+        font-weight:700;
+        margin-bottom:10px;
+      ">
+        SpO₂ Trend
+      </div>
+      <canvas id="pdfSpo2Chart" height="320"></canvas>
+    </div>
+  </div>
+
+  <hr style="
+    border:none;
+    border-top:2px solid #f0f0f0;
+    margin:28px 0;
+  ">
+
+  <!-- ===== QUALITATIVE ===== -->
+  <div style="
+    font-size:15px;
+    line-height:1.65;
+  ">
+    <div style="
+      font-size:20px;
+      font-weight:700;
+      margin-bottom:12px;
+    ">
+      Qualitative Interpretation
+    </div>
+
+    <div id="pdfOverallQualitative" style="
+      margin-bottom:12px;
+      max-width:700px;
+    "></div>
+
+    <div id="pdfDailyQualitative"></div>
+  </div>
+
+  <!-- ===== FOOTER ===== -->
+  <div style="
+    position:absolute;
+    bottom:24px;
+    left:48px;
+    right:48px;
+    font-size:11px;
+    color:#666;
+    border-top:1px solid #eee;
+    padding-top:8px;
+    text-align:center;
+  ">
+    Educational prototype · Descriptive trends only · Not a medical diagnostic report
+  </div>
+
+</div>
+
+
+<script>
+/* ================= CONFIG ================= */
+const DEVICE_ID = "esp32_001";
+const ONE_DAY_MS = 86400000;
+const SEVEN_DAY_MS = 7 * ONE_DAY_MS;
+const INACTIVITY_MS = 60000;
+
+/* ================= PDF META ================= */
+const SCHOOL_NAME = "YOUR_SCHOOL_NAME";
+let pdfBpmChart = null;
+let pdfSpo2Chart = null;
+
+/* ================= DATE ================= */
+document.getElementById("generatedDate").textContent =
+  luxon.DateTime.utc().toFormat("dd LLL yyyy");
+
+/* ================= FIREBASE ================= */
+firebase.initializeApp({
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "AUTH_DOMAIN_ID",
+  projectId: "PROJECT_ID",
+  appId: "APP_ID"
+});
+
+const auth = firebase.auth();
+const db = firebase.database();
+
+/* ================= AUTH ================= */
+auth.onAuthStateChanged(u => {
+  if (!u) window.location.href = "index.html";
+  else load1Day();
+});
+
+/* ================= CHARTS ================= */
+function makeChart(el, label, color, yCfg) {
+  return new Chart(el, {
+    type: "line",
+    data: { datasets: [{ label, data: [], borderColor: color, pointRadius: 0, tension: 0.3 }] },
+ options: {
+  parsing: false,
+  animation: false,
+
+  plugins: {
+    legend: {
+      labels: {
+        usePointStyle: true,
+        pointStyle: "circle",
+        boxWidth: 6,
+        boxHeight: 6,
+        padding: 14,
+        color: "#333",
+        font: {
+          size: 12,
+          weight: "normal"
+        }
+      }
+    },
+    annotation: {
+      annotations: {}
+    }
+  },
+
+  scales: {
+  x: {
+    type: "time",
+    grid: { color: "rgba(0,0,0,0.05)" }
+  },
+  y: {
+    ...yCfg,
+    grid: { color: "rgba(0,0,0,0.05)" }
+  }
+}
+
+}
+
+  });
+}
+
+const bpmChart = makeChart(
+  document.getElementById("bpmChart"), "Average BPM", "red",
+  { suggestedMin: 40, suggestedMax: 160 }
+);
+const spo2Chart = makeChart(
+  document.getElementById("spo2Chart"), "Average SpO₂", "blue",
+  { min: 85, max: 100 }
+);
+
+/* ================= PDF CHARTS ================= */
+function makePdfChart(el, label, color, yCfg) {
+  return new Chart(el, {
+    type: "line",
+    data: { datasets: [{ label, data: [], borderColor: color, pointRadius: 0 }] },
+    options: {
+      parsing: false,
+      animation: false,
+      responsive: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { type: "time", display: false }, y: yCfg }
+    }
+  });
+}
+
+function initPdfCharts() {
+  if (pdfBpmChart) return;
+  pdfBpmChart = makePdfChart(
+    document.getElementById("pdfBpmChart"), "BPM", "red",
+    { suggestedMin: 40, suggestedMax: 160 }
+  );
+  pdfSpo2Chart = makePdfChart(
+    document.getElementById("pdfSpo2Chart"), "SpO₂", "blue",
+    { min: 85, max: 100 }
+  );
+}
+
+/* ================= QUAL HELPERS ================= */
+function bpmText(v){
+  if(v.length<2) return "BPM remained insufficient for trend analysis.";
+  const r=Math.max(...v)-Math.min(...v);
+  if(r<10) return "BPM was largely stable.";
+  if(r<25) return "BPM showed moderate variation.";
+  return "BPM showed noticeable fluctuations.";
+}
+function spo2Text(v){
+  if(v.length<2) return "SpO₂ data insufficient for trend analysis.";
+  const r=Math.max(...v)-Math.min(...v);
+  if(r<2) return "SpO₂ remained consistent.";
+  if(r<5) return "SpO₂ showed minor variation.";
+  return "SpO₂ showed noticeable variability.";
+}
+
+/* ================= LOAD TRENDS ================= */
+function loadTrends(from, bucket, label) {
+  document.getElementById("loadStatus").textContent = `Loaded: ${label}`;
+
+  db.ref(`raw_readings/${DEVICE_ID}/readings`)
+    .orderByChild("timestamp")
+    .startAt(from)
+    .endAt(Date.now())
+    .once("value")
+    .then(snap => {
+
+      const raw=[];
+      snap.forEach(c=>{
+        const d=c.val();
+        if(d && d.sqi>=1) raw.push(d);
+      });
+      raw.sort((a,b)=>a.timestamp-b.timestamp);
+
+      if(!raw.length){
+        document.getElementById("rangeInfo").textContent="No valid data available.";
+        return;
+      }
+
+      const days={};
+      raw.forEach(d=>{
+        const day=luxon.DateTime.fromMillis(d.timestamp,{zone:"utc"}).toISODate();
+        if(!days[day]) days[day]={bpm:[],spo2:[],sessions:new Set()};
+        days[day].bpm.push(d.bpm);
+        days[day].spo2.push(d.spo2);
+        days[day].sessions.add(Math.floor(d.timestamp/INACTIVITY_MS));
+      });
+
+      const daysAvailable = Object.keys(days).length;
+      document.getElementById("rangeInfo").textContent =
+        `Data available: ${daysAvailable} day(s)`;
+
+      const buckets={};
+      raw.forEach(d=>{
+        const b=Math.floor(d.timestamp/bucket)*bucket;
+        if(!buckets[b]) buckets[b]={bpm:0,spo2:0,n:0};
+        buckets[b].bpm+=d.bpm;
+        buckets[b].spo2+=d.spo2;
+        buckets[b].n++;
+      });
+
+      const bpm=[], spo2=[], timestamps=[];
+      Object.keys(buckets).map(Number).sort((a,b)=>a-b).forEach(ts=>{
+        bpm.push({x:ts,y:Math.round(buckets[ts].bpm/buckets[ts].n)});
+        spo2.push({x:ts,y:Math.round(buckets[ts].spo2/buckets[ts].n)});
+        timestamps.push(ts);
+      });
+
+      bpmChart.data.datasets[0].data=bpm;
+      spo2Chart.data.datasets[0].data=spo2;
+
+      const annotations={};
+      const istDays=[...new Set(
+        timestamps.map(ts =>
+          luxon.DateTime.fromMillis(ts,{zone:"Asia/Kolkata"}).toISODate()
+        )
+      )];
+
+      istDays.forEach((day,i)=>{
+        const start=luxon.DateTime.fromISO(day,{zone:"Asia/Kolkata"}).startOf("day").toUTC().toMillis();
+        const end=luxon.DateTime.fromISO(day,{zone:"Asia/Kolkata"}).endOf("day").toUTC().toMillis();
+        if(i>0) annotations["line"+i]={type:"line",xMin:start,xMax:start,borderColor:"rgba(0,0,0,0.15)",borderDash:[4,4]};
+      });
+
+      bpmChart.options.plugins.annotation.annotations=annotations;
+      spo2Chart.options.plugins.annotation.annotations=annotations;
+      bpmChart.update(); spo2Chart.update();
+
+      const dq=document.getElementById("dailyQualitative");
+      dq.innerHTML="";
+      Object.keys(days).sort().forEach(day=>{
+        const div=document.createElement("div");
+        div.className="day-block";
+        div.innerHTML=`<b>${day}</b><br>${bpmText(days[day].bpm)}<br>${spo2Text(days[day].spo2)}`;
+        dq.appendChild(div);
+      });
+
+      document.getElementById("overallQualitative").textContent =
+        "These insights describe observed patterns only and are not medical assessments.";
+
+      /* ---------- PDF POPULATION ---------- */
+      initPdfCharts();
+      document.getElementById("pdfSchoolName").textContent=SCHOOL_NAME;
+      document.getElementById("pdfDate").textContent=
+        luxon.DateTime.now().setZone("Asia/Kolkata").toFormat("dd LLL yyyy");
+      document.getElementById("pdfCoverage").textContent=`${daysAvailable} day(s)`;
+
+      let totalSessions=0;
+      Object.values(days).forEach(d=>totalSessions+=d.sessions.size);
+      document.getElementById("pdfSessionCount").textContent=totalSessions;
+
+      pdfBpmChart.data.datasets[0].data=bpm.map(p=>({x:p.x,y:p.y}));
+      pdfSpo2Chart.data.datasets[0].data=spo2.map(p=>({x:p.x,y:p.y}));
+      pdfBpmChart.update(); pdfSpo2Chart.update();
+
+      document.getElementById("pdfOverallQualitative").textContent =
+        document.getElementById("overallQualitative").textContent;
+
+      const pdfDaily=document.getElementById("pdfDailyQualitative");
+      pdfDaily.innerHTML="";
+      Object.keys(days).sort().forEach(day=>{
+        const d=document.createElement("div");
+        d.innerHTML=`<b>${day}:</b> ${bpmText(days[day].bpm)} ${spo2Text(days[day].spo2)}`;
+        pdfDaily.appendChild(d);
+      });
+    });
+}
+
+function load1Day(){ loadTrends(Date.now()-ONE_DAY_MS,5*60000,"Last 24 Hours"); }
+function load7Day(){ loadTrends(Date.now()-SEVEN_DAY_MS,3600000,"Last 7 Days"); }
+
+/* ================= EXPORT ================= */
+function downloadPDF() {
+  const pdfArea = document.getElementById("pdfReport");
+
+  // Show only the PDF layout
+  pdfArea.style.display = "block";
+
+  html2canvas(pdfArea, {
+    scale: 2.5,              // higher DPI for print clarity
+    useCORS: true,
+    backgroundColor: "#ffffff"
+  }).then(canvas => {
+
+    const { jsPDF } = window.jspdf;
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4"
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 10;
+
+    const usableWidth = pageWidth - margin * 2;
+    const usableHeight = pageHeight - margin * 2;
+
+    const imgRatio = canvas.width / canvas.height;
+    const pageRatio = usableWidth / usableHeight;
+
+    let imgWidth, imgHeight;
+
+    // Decide whether to fit by width or height
+    if (imgRatio > pageRatio) {
+      // Wider than page → fit by width
+      imgWidth = usableWidth;
+      imgHeight = imgWidth / imgRatio;
+    } else {
+      // Taller than page → fit by height
+      imgHeight = usableHeight;
+      imgWidth = imgHeight * imgRatio;
+    }
+
+    // Center the image vertically & horizontally
+    const xOffset = (pageWidth - imgWidth) / 2;
+    const yOffset = (pageHeight - imgHeight) / 2;
+
+    pdf.addImage(
+      canvas.toDataURL("image/png"),
+      "PNG",
+      xOffset,
+      yOffset,
+      imgWidth,
+      imgHeight
+    );
+
+    // Footer page number
+    pdf.setFontSize(9);
+    pdf.setTextColor(120);
+    pdf.text(
+      "Page 1 of 1",
+      pageWidth / 2,
+      pageHeight - 6,
+      { align: "center" }
+    );
+
+    pdf.save(
+      `Trend_Report_${luxon.DateTime.now()
+        .setZone("Asia/Kolkata")
+        .toFormat("dd_LLL_yyyy")}.pdf`
+    );
+
+    // Hide PDF layout again
+    pdfArea.style.display = "none";
+  });
+}
+
+
+function downloadImage(){
+  const area=document.getElementById("pdfReport");
+  area.style.display="block";
+  html2canvas(area,{scale:2}).then(c=>{
+    const a=document.createElement("a");
+    a.href=c.toDataURL("image/png");
+    a.download=`Trend_Report_${luxon.DateTime.now().toFormat("dd_LLL_yyyy")}.png`;
+    a.click();
+    area.style.display="none";
+  });
+}
+
+function goLive(){ window.location.href="dashboard.html"; }
+</script>
+
+</body>
+</html>
