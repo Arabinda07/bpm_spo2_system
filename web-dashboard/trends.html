@@ -22,6 +22,9 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
+<!-- EmailJS for Educational Alerts -->
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/emailjs-com@2/dist/email.min.js"></script>
+
 <style>
 body { margin:0; font-family:Arial,sans-serif; font-size:14px;background:#f4f6f8; }
 header { background:#203a43; color:white; padding:12px; display:flex; gap:12px; }
@@ -274,6 +277,43 @@ canvas { max-height:260px; }
 
 
 <script>
+/* ================= EMAIL ALERTS ================= */
+// Initialize EmailJS with your User ID
+emailjs.init("YOUR_USER_ID");
+
+function sendAnomalyAlert(details) {
+  const templateParams = {
+    device_id: DEVICE_ID,
+    anomaly_type: details.type,
+    anomaly_value: details.value,
+    timestamp: new Date(details.timestamp).toUTCString(),
+    disclaimer: "This is an educational advisory and not a medical diagnosis."
+  };
+
+  emailjs.send('YOUR_SERVICE_ID', 'YOUR_TEMPLATE_ID', templateParams)
+    .then(function(response) {
+       console.log('SUCCESS!', response.status, response.text);
+    }, function(error) {
+       console.log('FAILED...', error);
+    });
+}
+
+/* ================= ANOMALY DETECTION ================= */
+function checkForAnomalies(data, thresholds) {
+  if (!thresholds || !data) return;
+
+  data.forEach(point => {
+    if (point.y < thresholds.bpm_min) {
+      sendAnomalyAlert({ type: 'Low BPM', value: point.y, timestamp: point.x });
+    }
+    if (point.y > thresholds.bpm_max) {
+      sendAnomalyAlert({ type: 'High BPM', value: point.y, timestamp: point.x });
+    }
+    if (point.y < thresholds.spo2_min) {
+      sendAnomalyAlert({ type: 'Low SpO2', value: point.y, timestamp: point.x });
+    }
+  });
+}
 /* ================= CONFIG ================= */
 const DEVICE_ID = "esp32_001";
 const ONE_DAY_MS = 86400000;
@@ -407,112 +447,121 @@ function spo2Text(v){
 function loadTrends(from, bucket, label) {
   document.getElementById("loadStatus").textContent = `Loaded: ${label}`;
 
-  db.ref(`raw_readings/${DEVICE_ID}/readings`)
-    .orderByChild("timestamp")
-    .startAt(from)
-    .endAt(Date.now())
-    .once("value")
-    .then(snap => {
+  // Fetch thresholds from Firebase
+  db.ref('config/thresholds').once('value').then(thresholdsSnap => {
+    const thresholds = thresholdsSnap.val();
 
-      const raw=[];
-      snap.forEach(c=>{
-        const d=c.val();
-        if(d && d.sqi>=1) raw.push(d);
+    db.ref(`raw_readings/${DEVICE_ID}/readings`)
+      .orderByChild("timestamp")
+      .startAt(from)
+      .endAt(Date.now())
+      .once("value")
+      .then(snap => {
+
+        const raw=[];
+        snap.forEach(c=>{
+          const d=c.val();
+          if(d && d.sqi>=1) raw.push(d);
+        });
+        raw.sort((a,b)=>a.timestamp-b.timestamp);
+
+        if(!raw.length){
+          document.getElementById("rangeInfo").textContent="No valid data available.";
+          return;
+        }
+
+        const days={};
+        raw.forEach(d=>{
+          const day=luxon.DateTime.fromMillis(d.timestamp,{zone:"utc"}).toISODate();
+          if(!days[day]) days[day]={bpm:[],spo2:[],sessions:new Set()};
+          days[day].bpm.push(d.bpm);
+          days[day].spo2.push(d.spo2);
+          days[day].sessions.add(Math.floor(d.timestamp/INACTIVITY_MS));
+        });
+
+        const daysAvailable = Object.keys(days).length;
+        document.getElementById("rangeInfo").textContent =
+          `Data available: ${daysAvailable} day(s)`;
+
+        const buckets={};
+        raw.forEach(d=>{
+          const b=Math.floor(d.timestamp/bucket)*bucket;
+          if(!buckets[b]) buckets[b]={bpm:0,spo2:0,n:0};
+          buckets[b].bpm+=d.bpm;
+          buckets[b].spo2+=d.spo2;
+          buckets[b].n++;
+        });
+
+        const bpm=[], spo2=[], timestamps=[];
+        Object.keys(buckets).map(Number).sort((a,b)=>a-b).forEach(ts=>{
+          bpm.push({x:ts,y:Math.round(buckets[ts].bpm/buckets[ts].n)});
+          spo2.push({x:ts,y:Math.round(buckets[ts].spo2/buckets[ts].n)});
+          timestamps.push(ts);
+        });
+
+        bpmChart.data.datasets[0].data=bpm;
+        spo2Chart.data.datasets[0].data=spo2;
+
+        // Check for anomalies after processing data
+        checkForAnomalies(bpm, thresholds);
+        checkForAnomalies(spo2, thresholds);
+
+        const annotations={};
+        const istDays=[...new Set(
+          timestamps.map(ts =>
+            luxon.DateTime.fromMillis(ts,{zone:"Asia/Kolkata"}).toISODate()
+          )
+        )];
+
+        istDays.forEach((day,i)=>{
+          const start=luxon.DateTime.fromISO(day,{zone:"Asia/Kolkata"}).startOf("day").toUTC().toMillis();
+          const end=luxon.DateTime.fromISO(day,{zone:"Asia/Kolkata"}).endOf("day").toUTC().toMillis();
+          if(i>0) annotations["line"+i]={type:"line",xMin:start,xMax:start,borderColor:"rgba(0,0,0,0.15)",borderDash:[4,4]};
+        });
+
+        bpmChart.options.plugins.annotation.annotations=annotations;
+        spo2Chart.options.plugins.annotation.annotations=annotations;
+        bpmChart.update(); spo2Chart.update();
+
+        const dq=document.getElementById("dailyQualitative");
+        dq.innerHTML="";
+        Object.keys(days).sort().forEach(day=>{
+          const div=document.createElement("div");
+          div.className="day-block";
+          div.innerHTML=`<b>${day}</b><br>${bpmText(days[day].bpm)}<br>${spo2Text(days[day].spo2)}`;
+          dq.appendChild(div);
+        });
+
+        document.getElementById("overallQualitative").textContent =
+          "These insights describe observed patterns only and are not medical assessments.";
+
+        /* ---------- PDF POPULATION ---------- */
+        initPdfCharts();
+        document.getElementById("pdfSchoolName").textContent=SCHOOL_NAME;
+        document.getElementById("pdfDate").textContent=
+          luxon.DateTime.now().setZone("Asia/Kolkata").toFormat("dd LLL yyyy");
+        document.getElementById("pdfCoverage").textContent=`${daysAvailable} day(s)`;
+
+        let totalSessions=0;
+        Object.values(days).forEach(d=>totalSessions+=d.sessions.size);
+        document.getElementById("pdfSessionCount").textContent=totalSessions;
+
+        pdfBpmChart.data.datasets[0].data=bpm.map(p=>({x:p.x,y:p.y}));
+        pdfSpo2Chart.data.datasets[0].data=spo2.map(p=>({x:p.x,y:p.y}));
+        pdfBpmChart.update(); pdfSpo2Chart.update();
+
+        document.getElementById("pdfOverallQualitative").textContent =
+          document.getElementById("overallQualitative").textContent;
+
+        const pdfDaily=document.getElementById("pdfDailyQualitative");
+        pdfDaily.innerHTML="";
+        Object.keys(days).sort().forEach(day=>{
+          const d=document.createElement("div");
+          d.innerHTML=`<b>${day}:</b> ${bpmText(days[day].bpm)} ${spo2Text(days[day].spo2)}`;
+          pdfDaily.appendChild(d);
+        });
       });
-      raw.sort((a,b)=>a.timestamp-b.timestamp);
-
-      if(!raw.length){
-        document.getElementById("rangeInfo").textContent="No valid data available.";
-        return;
-      }
-
-      const days={};
-      raw.forEach(d=>{
-        const day=luxon.DateTime.fromMillis(d.timestamp,{zone:"utc"}).toISODate();
-        if(!days[day]) days[day]={bpm:[],spo2:[],sessions:new Set()};
-        days[day].bpm.push(d.bpm);
-        days[day].spo2.push(d.spo2);
-        days[day].sessions.add(Math.floor(d.timestamp/INACTIVITY_MS));
-      });
-
-      const daysAvailable = Object.keys(days).length;
-      document.getElementById("rangeInfo").textContent =
-        `Data available: ${daysAvailable} day(s)`;
-
-      const buckets={};
-      raw.forEach(d=>{
-        const b=Math.floor(d.timestamp/bucket)*bucket;
-        if(!buckets[b]) buckets[b]={bpm:0,spo2:0,n:0};
-        buckets[b].bpm+=d.bpm;
-        buckets[b].spo2+=d.spo2;
-        buckets[b].n++;
-      });
-
-      const bpm=[], spo2=[], timestamps=[];
-      Object.keys(buckets).map(Number).sort((a,b)=>a-b).forEach(ts=>{
-        bpm.push({x:ts,y:Math.round(buckets[ts].bpm/buckets[ts].n)});
-        spo2.push({x:ts,y:Math.round(buckets[ts].spo2/buckets[ts].n)});
-        timestamps.push(ts);
-      });
-
-      bpmChart.data.datasets[0].data=bpm;
-      spo2Chart.data.datasets[0].data=spo2;
-
-      const annotations={};
-      const istDays=[...new Set(
-        timestamps.map(ts =>
-          luxon.DateTime.fromMillis(ts,{zone:"Asia/Kolkata"}).toISODate()
-        )
-      )];
-
-      istDays.forEach((day,i)=>{
-        const start=luxon.DateTime.fromISO(day,{zone:"Asia/Kolkata"}).startOf("day").toUTC().toMillis();
-        const end=luxon.DateTime.fromISO(day,{zone:"Asia/Kolkata"}).endOf("day").toUTC().toMillis();
-        if(i>0) annotations["line"+i]={type:"line",xMin:start,xMax:start,borderColor:"rgba(0,0,0,0.15)",borderDash:[4,4]};
-      });
-
-      bpmChart.options.plugins.annotation.annotations=annotations;
-      spo2Chart.options.plugins.annotation.annotations=annotations;
-      bpmChart.update(); spo2Chart.update();
-
-      const dq=document.getElementById("dailyQualitative");
-      dq.innerHTML="";
-      Object.keys(days).sort().forEach(day=>{
-        const div=document.createElement("div");
-        div.className="day-block";
-        div.innerHTML=`<b>${day}</b><br>${bpmText(days[day].bpm)}<br>${spo2Text(days[day].spo2)}`;
-        dq.appendChild(div);
-      });
-
-      document.getElementById("overallQualitative").textContent =
-        "These insights describe observed patterns only and are not medical assessments.";
-
-      /* ---------- PDF POPULATION ---------- */
-      initPdfCharts();
-      document.getElementById("pdfSchoolName").textContent=SCHOOL_NAME;
-      document.getElementById("pdfDate").textContent=
-        luxon.DateTime.now().setZone("Asia/Kolkata").toFormat("dd LLL yyyy");
-      document.getElementById("pdfCoverage").textContent=`${daysAvailable} day(s)`;
-
-      let totalSessions=0;
-      Object.values(days).forEach(d=>totalSessions+=d.sessions.size);
-      document.getElementById("pdfSessionCount").textContent=totalSessions;
-
-      pdfBpmChart.data.datasets[0].data=bpm.map(p=>({x:p.x,y:p.y}));
-      pdfSpo2Chart.data.datasets[0].data=spo2.map(p=>({x:p.x,y:p.y}));
-      pdfBpmChart.update(); pdfSpo2Chart.update();
-
-      document.getElementById("pdfOverallQualitative").textContent =
-        document.getElementById("overallQualitative").textContent;
-
-      const pdfDaily=document.getElementById("pdfDailyQualitative");
-      pdfDaily.innerHTML="";
-      Object.keys(days).sort().forEach(day=>{
-        const d=document.createElement("div");
-        d.innerHTML=`<b>${day}:</b> ${bpmText(days[day].bpm)} ${spo2Text(days[day].spo2)}`;
-        pdfDaily.appendChild(d);
-      });
-    });
+  });
 }
 
 function load1Day(){ loadTrends(Date.now()-ONE_DAY_MS,5*60000,"Last 24 Hours"); }
