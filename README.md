@@ -66,10 +66,6 @@ ESP32 + MAX30102
 - CBSE / State-level science exhibitions
 - Teachers demonstrating IoT + data concepts
 
----
-
-## 📜 License
-License will be added after final review.
 
 ---
 
