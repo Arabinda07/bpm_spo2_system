@@ -299,18 +299,21 @@ function sendAnomalyAlert(details) {
 }
 
 /* ================= ANOMALY DETECTION ================= */
-function checkForAnomalies(data, thresholds) {
+function checkForAnomalies(data, thresholds, dataType) {
   if (!thresholds || !data) return;
 
   data.forEach(point => {
-    if (point.y < thresholds.bpm_min) {
-      sendAnomalyAlert({ type: 'Low BPM', value: point.y, timestamp: point.x });
-    }
-    if (point.y > thresholds.bpm_max) {
-      sendAnomalyAlert({ type: 'High BPM', value: point.y, timestamp: point.x });
-    }
-    if (point.y < thresholds.spo2_min) {
-      sendAnomalyAlert({ type: 'Low SpO2', value: point.y, timestamp: point.x });
+    if (dataType === 'bpm') {
+        if (point.y < thresholds.bpm_min) {
+          sendAnomalyAlert({ type: 'Low BPM', value: point.y, timestamp: point.x });
+        }
+        if (point.y > thresholds.bpm_max) {
+          sendAnomalyAlert({ type: 'High BPM', value: point.y, timestamp: point.x });
+        }
+    } else if (dataType === 'spo2') {
+        if (point.y < thresholds.spo2_min) {
+          sendAnomalyAlert({ type: 'Low SpO2', value: point.y, timestamp: point.x });
+        }
     }
   });
 }
@@ -345,6 +348,7 @@ auth.onAuthStateChanged(u => {
   if (!u) window.location.href = "index.html";
   else load1Day();
 });
+
 
 /* ================= CHARTS ================= */
 function makeChart(el, label, color, yCfg) {
@@ -503,8 +507,8 @@ function loadTrends(from, bucket, label) {
         spo2Chart.data.datasets[0].data=spo2;
 
         // Check for anomalies after processing data
-        checkForAnomalies(bpm, thresholds);
-        checkForAnomalies(spo2, thresholds);
+        checkForAnomalies(bpm, thresholds, 'bpm');
+        checkForAnomalies(spo2, thresholds, 'spo2');
 
         const annotations={};
         const istDays=[...new Set(
